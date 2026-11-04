@@ -5,7 +5,7 @@ ROOT = pathlib.Path(__file__).resolve().parent
 STATE = ROOT / 'jobs_state.json'
 MAX_INITIAL = 5
 INTERVALS = {'himalayas': 86400, 'jobicy': 3600, 'remotive': 21600}
-ROLE = re.compile(r'\b(help[ -]?desk|service desk|desktop support|it support|technical support|it technician|it analyst|soc analyst|security analyst|cybersecurity analyst|cyber security analyst|security operations analyst|security support|information security analyst|incident response analyst)\b', re.I)
+ROLE = re.compile(r'\b(help[ -]?desk|service desk|desktop support|it support|technical support|it technician|it analyst|it intern|soc analyst|security analyst|cybersecurity analyst|cyber security analyst|security operations analyst|security support|information security analyst|incident response analyst|cybersecurity intern|cyber security intern|information security intern|security operations intern|cybersecurity specialist|cybersecurity technician|security engineer)\b', re.I)
 TOO_SENIOR = re.compile(r'\b(senior|sr\.?|staff|principal|lead|manager|director|head of|architect|chief|tier[ -]?(?:iii|3)|level[ -]?(?:iii|3))\b', re.I)
 BLOCKER = re.compile(r'\b(?:must|require[ds]?|minimum(?: of)?|at least)\s+(?:have\s+)?(?:a\s+)?(?:minimum(?: of)?\s+)?(?:[4-9]|\d{2,})\s*\+?\s*years?\b|\b(?:[4-9]|\d{2,})\s*\+\s*years?\b', re.I)
 OTHER_LANGUAGE = re.compile(r'\b(?:german|french|spanish|portuguese|dutch|italian|mandarin|japanese|korean|arabic|polish)\b', re.I)
@@ -25,27 +25,26 @@ def identity(company,title):
     return hashlib.sha256(key.encode()).hexdigest()
 
 def valid_role(title, seniority, text):
-    return bool(ROLE.search(title)) and not TOO_SENIOR.search(title+' '+seniority) and not BLOCKER.search(text) and not OTHER_LANGUAGE.search(title) and not REGION_TITLE.search(title) and not LANG_REQUIREMENT.search(text)
+    region_only = REGION_TITLE.search(title) and not re.search(r'\b(?:hours?|time\s*zones?|shifts?)\b', title, re.I)
+    return bool(ROLE.search(title)) and not TOO_SENIOR.search(title+' '+seniority) and not BLOCKER.search(text) and not OTHER_LANGUAGE.search(title) and not region_only and not LANG_REQUIREMENT.search(text)
 
 def nigeria(job):
     loc=job.get('locationRestrictions',[])
     names=[str(x.get('name') or x.get('alpha2') or '') if isinstance(x,dict) else str(x) for x in loc]
     if names and not any(x.lower() in ('nigeria','ng') for x in names): return False
-    tz=job.get('timezoneRestrictions') or []
-    if tz and not any(str(t).strip().lower() in ('1','1.0','+1','utc+1','utc+01:00','+01:00') for t in tz): return False
     return True
 
-def make(source,title,company,url,text,location,date,seniority='',salary='',guid=''):
+def make(source,title,company,url,text,location,date,seniority='',salary='',guid='',employment=''):
     title,company,text,seniority=map(plain,(title,company,text,seniority))
     if not title or not company or not url or not valid_role(title,seniority,text): return None
     matched=[s for s in SKILLS if s in text.lower()][:5]
-    return {'id':identity(company,title),'source':source,'title':title,'company':company,'url':url,'location':location,'date':str(date or 'Not provided'),'seniority':seniority or 'Not specified','salary':plain(salary) or 'Not stated','skills':matched,'guid':guid}
+    return {'id':identity(company,title),'source':source,'title':title,'company':company,'url':url,'location':location,'date':str(date or 'Not provided'),'seniority':seniority or 'Not specified','salary':plain(salary) or 'Not stated','skills':matched,'guid':guid,'employment':plain(employment) or 'Not specified'}
 
 def candidates(source):
     out=[]
     if source=='himalayas':
         # The data is cached for 24h. Limit each focused query to recent results.
-        for query in ('it support','help desk','technical support','security analyst','soc analyst'):
+        for query in ('it support','help desk','technical support','security analyst','soc analyst','cybersecurity intern','information security intern'):
             for page in (1,2,3):
                 q=urllib.parse.urlencode({'q':query,'country':'NG','sort':'recent','page':page})
                 data=fetch('https://himalayas.app/jobs/api/search?'+q)
@@ -56,7 +55,7 @@ def candidates(source):
                     if any(re.search(r'mid|senior|manager|director|executive',str(x),re.I) for x in levels) and not any('entry' in str(x).lower() for x in levels): continue
                     date=datetime.fromtimestamp(j['pubDate'],timezone.utc).isoformat() if isinstance(j.get('pubDate'),(int,float)) else ''
                     salary=' '.join(str(x) for x in (j.get('currency'), j.get('minSalary'), j.get('maxSalary'),j.get('salaryPeriod')) if x is not None) if j.get('minSalary') is not None or j.get('maxSalary') is not None else ''
-                    item=make(source,j.get('title'),j.get('companyName'),j.get('applicationLink'),j.get('description'), 'Nigeria eligible in board data; verify employer restrictions',date,', '.join(levels),salary,j.get('guid',''))
+                    item=make(source,j.get('title'),j.get('companyName'),j.get('applicationLink'),j.get('description'), 'Nigeria eligible in board data; verify employer restrictions',date,', '.join(levels),salary,j.get('guid',''),j.get('employmentType',''))
                     if item: out.append(item)
                 if len(data['jobs'])<20: break
     elif source=='jobicy':
@@ -70,7 +69,7 @@ def candidates(source):
                 for j in data['jobs']:
                     loc=plain(j.get('jobGeo')).lower()
                     if not any(t in loc for t in ('nigeria','anywhere','worldwide','global','africa')): continue
-                    item=make(source,j.get('jobTitle'),j.get('companyName'),j.get('url'),j.get('jobDescription'), 'Nigeria eligibility unverified; board location: '+loc,j.get('pubDate'),j.get('jobLevel'), ' '.join(str(j.get(k) or '') for k in ('salaryCurrency','salaryMin','salaryMax','salaryPeriod')),str(j.get('id','')))
+                    item=make(source,j.get('jobTitle'),j.get('companyName'),j.get('url'),j.get('jobDescription'), 'Nigeria eligibility unverified; board location: '+loc,j.get('pubDate'),j.get('jobLevel'), ' '.join(str(j.get(k) or '') for k in ('salaryCurrency','salaryMin','salaryMax','salaryPeriod')),str(j.get('id','')),', '.join(j.get('jobType') or []))
                     if item: out.append(item)
                 cursor=data.get('nextCursor')
                 if not cursor: break
@@ -80,7 +79,7 @@ def candidates(source):
         for j in data['jobs']:
             loc=plain(j.get('candidate_required_location')).lower()
             if not any(t in loc for t in ('nigeria','worldwide','anywhere','global','africa')): continue
-            item=make(source,j.get('title'),j.get('company_name'),j.get('url'),j.get('description'),'Board location: '+loc+'; verify Nigeria eligibility',j.get('publication_date'),'',j.get('salary'))
+            item=make(source,j.get('title'),j.get('company_name'),j.get('url'),j.get('description'),'Board location: '+loc+'; verify Nigeria eligibility',j.get('publication_date'),'',j.get('salary'),'',j.get('job_type',''))
             if item: out.append(item)
     return out
 
@@ -99,7 +98,7 @@ def verify(j):
             detail=fetch('https://himalayas.app/jobs/api'+p.path)
             return 'Open according to Himalayas' if isinstance(detail.get('job'),dict) else 'Board listing status unverified'
         except urllib.error.HTTPError as e:
-            return 'closed' if e.code in (404,410) else 'Board listing status unverified'
+            return 'closed' if e.code == 410 else 'Board listing status unverified'
         except Exception: return 'Board listing status unverified'
     if j['source']=='jobicy' and j['guid']:
         try:
@@ -119,7 +118,7 @@ def send(message):
 def message(j,status):
     label='Last updated' if j['source']=='himalayas' else 'Published'
     fit=', '.join(j['skills']) if j['skills'] else 'Role title matches your target; review skills and requirements'
-    return f"Remote job lead: {j['title']} — {j['company']}\n{j['location']}\nLevel: {j['seniority']}\n{label}: {j['date']}\nSalary: {j['salary']}\nPotential skill overlap: {fit}\n{status}; eligibility and fit need your review.\nSource: {j['source'].title()}\n{j['url']}"
+    return f"Remote job lead: {j['title']} — {j['company']}\n{j['location']}\nEmployment: {j['employment']}\nLevel: {j['seniority']}\n{label}: {j['date']}\nSalary: {j['salary']}\nPotential skill overlap: {fit}\n{status}; eligibility and fit need your review.\nSource: {j['source'].title()}\n{j['url']}"
 
 def save(state): STATE.write_text(json.dumps(state,indent=2)+'\n',encoding='utf8')
 
