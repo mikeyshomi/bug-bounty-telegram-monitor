@@ -1,11 +1,14 @@
 import hashlib, html, json, os, pathlib, re, sys, time, urllib.parse, urllib.request
 from datetime import datetime, timezone
+from html.parser import HTMLParser
 
 ROOT = pathlib.Path(__file__).resolve().parent
 STATE = ROOT / 'jobs_state.json'
 MAX_INITIAL = 5
-INTERVALS = {'himalayas': 86400, 'jobicy': 3600, 'remotive': 21600}
+INTERVALS = {'himalayas': 86400, 'jobicy': 3600, 'remotive': 21600, 'opentrain': 3600}
 ROLE = re.compile(r'\b(help[ -]?desk|service desk|desktop support|it support|technical support|it technician|it analyst|it intern|soc analyst|security analyst|cybersecurity analyst|cyber security analyst|security operations analyst|security support|information security analyst|incident response analyst|cybersecurity intern|cyber security intern|information security intern|security operations intern|cybersecurity specialist|cybersecurity technician|security engineer)\b', re.I)
+AI_ROLE = re.compile(r'\b(ai train(?:er|ing)|ai data train(?:er|ing)|ai (?:response |model )?(?:rater|evaluator|reviewer|annotator)|data (?:annotator|annotation|label(?:er|ing)|rater)|(?:audio|video|image|text|content) (?:and (?:audio|video|image|text) )?annotat(?:or|ion)|(?:model|response|search|content) (?:rater|evaluator|evaluation|reviewer)|(?:python|coding|code) (?:reviewer|rater|evaluator))\b',re.I)
+SPECIALIST = re.compile(r'\b(expert|specialist|physician|doctor|pharmac|nurs(?:e|ing)|medical|clinical|attorney|lawyer|legal|paralegal|litigation|accountan|tax|engineer(?:ing)? phd|architect|architectural|construction|veterinar|finance|financial|insurance|actuar|chemist|scientist|physics|biolog|aerospace|electrical|mechanical|civil|graphic design|photography|cinematography|hospitality|sysml|mbse|systems engineer)\b',re.I)
 TOO_SENIOR = re.compile(r'\b(senior|sr\.?|staff|principal|lead|manager|director|head of|architect|chief|tier[ -]?(?:iii|3)|level[ -]?(?:iii|3))\b', re.I)
 BLOCKER = re.compile(r'\b(?:must|require[ds]?|minimum(?: of)?|at least)\s+(?:have\s+)?(?:a\s+)?(?:minimum(?: of)?\s+)?(?:[4-9]|\d{2,})\s*\+?\s*years?\b|\b(?:[4-9]|\d{2,})\s*\+\s*years?\b', re.I)
 OTHER_LANGUAGE = re.compile(r'\b(?:german|french|spanish|portuguese|dutch|italian|mandarin|japanese|korean|arabic|polish)\b', re.I)
@@ -26,7 +29,44 @@ def identity(company,title):
 
 def valid_role(title, seniority, text):
     region_only = REGION_TITLE.search(title) and not re.search(r'\b(?:hours?|time\s*zones?|shifts?)\b', title, re.I)
-    return bool(ROLE.search(title)) and not TOO_SENIOR.search(title+' '+seniority) and not BLOCKER.search(text) and not OTHER_LANGUAGE.search(title) and not region_only and not LANG_REQUIREMENT.search(text)
+    role_match = bool(ROLE.search(title)) or (bool(AI_ROLE.search(title)) and not SPECIALIST.search(title))
+    return role_match and not TOO_SENIOR.search(title+' '+seniority) and not BLOCKER.search(text) and not OTHER_LANGUAGE.search(title) and not region_only and not LANG_REQUIREMENT.search(text)
+
+class ListingParser(HTMLParser):
+    def __init__(self):
+        super().__init__(); self.article=0; self.in_heading=0; self.heading=[]; self.url=''; self.entries=[]
+    def handle_starttag(self,tag,attrs):
+        attrs=dict(attrs)
+        if tag=='article': self.article+=1; self.heading=[]; self.url=''
+        elif self.article and tag=='h3': self.in_heading+=1
+        elif self.article and self.in_heading and tag=='a': self.url=attrs.get('href','')
+    def handle_data(self,data):
+        if self.article and self.in_heading: self.heading.append(data)
+    def handle_endtag(self,tag):
+        if tag=='h3' and self.in_heading: self.in_heading-=1
+        elif tag=='article' and self.article:
+            self.article-=1
+            if not self.article and self.url: self.entries.append((plain(' '.join(self.heading)),self.url))
+
+class JsonLdParser(HTMLParser):
+    def __init__(self): super().__init__(); self.inside=False; self.chunks=[]; self.jobs=[]
+    def handle_starttag(self,tag,attrs):
+        if tag=='script' and dict(attrs).get('type')=='application/ld+json': self.inside=True; self.chunks=[]
+    def handle_data(self,data):
+        if self.inside: self.chunks.append(data)
+    def handle_endtag(self,tag):
+        if tag=='script' and self.inside:
+            self.inside=False
+            try:
+                obj=json.loads(''.join(self.chunks))
+                if isinstance(obj,dict) and obj.get('@type')=='JobPosting': self.jobs.append(obj)
+            except (ValueError,TypeError): pass
+
+def html_fetch(url):
+    req=urllib.request.Request(url,headers={'User-Agent':'Remote-job-alert-monitor/1.0','Accept':'text/html'})
+    with urllib.request.urlopen(req,timeout=45) as response:
+        if urllib.parse.urlsplit(response.url).hostname != 'www.opentrain.ai': raise ValueError('unexpected redirect')
+        return response.read().decode('utf8',errors='replace')
 
 def nigeria(job):
     loc=job.get('locationRestrictions',[])
@@ -38,13 +78,14 @@ def make(source,title,company,url,text,location,date,seniority='',salary='',guid
     title,company,text,seniority=map(plain,(title,company,text,seniority))
     if not title or not company or not url or not valid_role(title,seniority,text): return None
     matched=[s for s in SKILLS if s in text.lower()][:5]
-    return {'id':identity(company,title),'source':source,'title':title,'company':company,'url':url,'location':location,'date':str(date or 'Not provided'),'seniority':seniority or 'Not specified','salary':plain(salary) or 'Not stated','skills':matched,'guid':guid,'employment':plain(employment) or 'Not specified'}
+    excerpt=re.search(r'\b(?:skills|requirements|experience|qualifications)\s*:\s*([^\n]{15,180})',text,re.I)
+    return {'id':identity(company,title),'source':source,'title':title,'company':company,'url':url,'location':location,'date':str(date or 'Not provided'),'seniority':seniority or 'Not specified','salary':plain(salary) or 'Not stated','skills':matched,'guid':guid,'employment':plain(employment) or 'Not specified','requirement':excerpt.group(1).strip() if excerpt else ''}
 
 def candidates(source):
     out=[]
     if source=='himalayas':
         # The data is cached for 24h. Limit each focused query to recent results.
-        for query in ('it support','help desk','technical support','security analyst','soc analyst','cybersecurity intern','information security intern'):
+        for query in ('it support','help desk','technical support','security analyst','soc analyst','cybersecurity intern','information security intern','ai trainer','data annotator','ai evaluator'):
             for page in (1,2,3):
                 q=urllib.parse.urlencode({'q':query,'country':'NG','sort':'recent','page':page})
                 data=fetch('https://himalayas.app/jobs/api/search?'+q)
@@ -59,7 +100,7 @@ def candidates(source):
                     if item: out.append(item)
                 if len(data['jobs'])<20: break
     elif source=='jobicy':
-        for tag in ('support','security'):
+        for tag in ('support','security','ai trainer','data annotator'):
             cursor=None
             for _ in range(5):
                 args={'count':200,'tag':tag}
@@ -73,6 +114,38 @@ def candidates(source):
                     if item: out.append(item)
                 cursor=data.get('nextCursor')
                 if not cursor: break
+    elif source=='opentrain':
+        attempted=0; details_checked=0
+        for page in (1,2,3):
+            parser=ListingParser(); parser.feed(html_fetch('https://www.opentrain.ai/jobs/country/nigeria/?page='+str(page)))
+            if not parser.entries: raise ValueError('OpenTrain listing layout changed')
+            for title,path in parser.entries:
+                if not valid_role(title,'',''): continue
+                url=urllib.parse.urljoin('https://www.opentrain.ai',path)
+                if urllib.parse.urlsplit(url).hostname!='www.opentrain.ai': continue
+                try:
+                    attempted+=1
+                    detail=JsonLdParser(); detail.feed(html_fetch(url))
+                    if not detail.jobs: continue
+                    details_checked+=1
+                    j=detail.jobs[0]; countries=j.get('applicantLocationRequirements') or []
+                    if isinstance(countries,dict): countries=[countries]
+                    names=[str(c.get('name','')).lower() for c in countries if isinstance(c,dict)]
+                    if 'nigeria' not in names and not any(x in ('worldwide','anywhere') for x in names): continue
+                    if j.get('jobLocationType')!='TELECOMMUTE': continue
+                    expiry=j.get('validThrough')
+                    if expiry and datetime.fromisoformat(expiry.replace('Z','+00:00')) < datetime.now(timezone.utc): continue
+                    types=j.get('employmentType') or []
+                    if isinstance(types,str): types=[types]
+                    salary=j.get('baseSalary') or ''
+                    if not salary:
+                        pay=re.search(r'\bPay\s*:\s*([^\.]{1,100})',plain(j.get('description')),re.I)
+                        if pay: salary=pay.group(1).strip()
+                    item=make(source,j.get('title'), 'OpenTrain AI',url,j.get('description'),'Nigeria listed as eligible; verify details',j.get('datePosted'),'Not specified',str(salary) if salary else '',url,', '.join(types))
+                    if item: out.append(item)
+                except Exception as e:
+                    print('OpenTrain listing skipped: '+type(e).__name__,file=sys.stderr,flush=True)
+        if attempted and not details_checked: raise ValueError('OpenTrain job details unavailable')
     elif source=='remotive':
         data=fetch('https://remotive.com/api/remote-jobs')
         if not isinstance(data.get('jobs'),list): raise ValueError('invalid Remotive response')
@@ -91,6 +164,7 @@ def recent(date):
     except (ValueError,TypeError): return False
 
 def verify(j):
+    if j['source']=='opentrain': return 'Listing checked on OpenTrain; employer availability may change'
     if j['source']=='himalayas':
         p=urllib.parse.urlsplit(j['guid'])
         if p.netloc!='himalayas.app' or not p.path.startswith('/companies/'): return 'Board listing status unverified'
@@ -118,7 +192,8 @@ def send(message):
 def message(j,status):
     label='Last updated' if j['source']=='himalayas' else 'Published'
     fit=', '.join(j['skills']) if j['skills'] else 'Role title matches your target; review skills and requirements'
-    return f"Remote job lead: {j['title']} — {j['company']}\n{j['location']}\nEmployment: {j['employment']}\nLevel: {j['seniority']}\n{label}: {j['date']}\nSalary: {j['salary']}\nPotential skill overlap: {fit}\n{status}; eligibility and fit need your review.\nSource: {j['source'].title()}\n{j['url']}"
+    req='\nListing requirement excerpt: '+j['requirement'] if j.get('requirement') else ''
+    return f"Remote job lead: {j['title']} — {j['company']}\n{j['location']}\nEmployment: {j['employment']}\nLevel: {j['seniority']}\n{label}: {j['date']}\nSalary: {j['salary']}\nPotential skill overlap: {fit}{req}\n{status}; eligibility and fit need your review.\nSource: {j['source'].title()}\n{j['url']}"
 
 def save(state): STATE.write_text(json.dumps(state,indent=2)+'\n',encoding='utf8')
 
