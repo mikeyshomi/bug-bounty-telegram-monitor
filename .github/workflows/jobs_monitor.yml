@@ -1,0 +1,39 @@
+name: Nigeria remote jobs monitor
+on:
+  schedule:
+    - cron: '7,37 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: bounty-monitor
+  cancel-in-progress: false
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Find jobs and send Telegram alerts
+        id: jobs
+        continue-on-error: true
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python jobs_monitor.py
+      - name: Save job-monitor state
+        if: always()
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if [ -f jobs_state.json ]; then git add jobs_state.json; fi
+          if ! git diff --cached --quiet; then
+            git commit -m 'Update job monitor state'
+            git push
+          fi
+      - name: Signal source failures
+        if: steps.jobs.outcome == 'failure'
+        run: exit 1
