@@ -1,19 +1,20 @@
 import hashlib, html, json, os, pathlib, re, sys, time, urllib.parse, urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from html.parser import HTMLParser
 
 ROOT = pathlib.Path(__file__).resolve().parent
 STATE = ROOT / 'jobs_state.json'
 MAX_INITIAL = 5
-INTERVALS = {'himalayas': 86400, 'jobicy': 3600, 'remotive': 21600, 'opentrain': 3600}
+INTERVALS = {'himalayas': 86400, 'jobicy': 3600, 'remotive': 21600, 'opentrain': 3600, 'remoshift': 3600, 'boqqs': 3600, 'remoteok': 3600, 'welo': 21600, 'rws': 21600, 'remotasks': 21600}
 ROLE = re.compile(r'\b(help[ -]?desk|service desk|desktop support|it support|technical support|it technician|it analyst|it intern|soc analyst|security analyst|cybersecurity analyst|cyber security analyst|security operations analyst|security support|information security analyst|incident response analyst|cybersecurity intern|cyber security intern|information security intern|security operations intern|cybersecurity specialist|cybersecurity technician|security engineer)\b', re.I)
+BROAD_ROLE = re.compile(r'\b(customer (?:support|service|success)(?: (?:agent|representative|associate|specialist|advisor))?|(?:virtual|administrative|admin|research) assistant|data entry (?:clerk|operator|specialist|assistant)|training (?:assistant|coordinator)|content moderat(?:or|ion)|online tutor)\b', re.I)
 AI_ROLE = re.compile(r'\b(ai train(?:er|ing)|ai data train(?:er|ing)|ai (?:response |model )?(?:rater|evaluator|reviewer|annotator)|data (?:annotator|annotation|label(?:er|ing)|rater)|(?:audio|video|image|text|content) (?:and (?:audio|video|image|text) )?annotat(?:or|ion)|(?:model|response|search|content) (?:rater|evaluator|evaluation|reviewer)|(?:python|coding|code) (?:reviewer|rater|evaluator))\b',re.I)
 SPECIALIST = re.compile(r'\b(expert|specialist|physician|doctor|pharmac|nurs(?:e|ing)|medical|clinical|attorney|lawyer|legal|paralegal|litigation|accountan|tax|engineer(?:ing)? phd|architect|architectural|construction|veterinar|finance|financial|insurance|actuar|chemist|scientist|physics|biolog|aerospace|electrical|mechanical|civil|graphic design|photography|cinematography|hospitality|sysml|mbse|systems engineer)\b',re.I)
 TOO_SENIOR = re.compile(r'\b(senior|sr\.?|staff|principal|lead|manager|director|head of|architect|chief|tier[ -]?(?:iii|3)|level[ -]?(?:iii|3))\b', re.I)
 BLOCKER = re.compile(r'\b(?:must|require[ds]?|minimum(?: of)?|at least)\s+(?:have\s+)?(?:a\s+)?(?:minimum(?: of)?\s+)?(?:[4-9]|\d{2,})\s*\+?\s*years?\b|\b(?:[4-9]|\d{2,})\s*\+\s*years?\b', re.I)
-OTHER_LANGUAGE = re.compile(r'\b(?:german|french|spanish|portuguese|dutch|italian|mandarin|japanese|korean|arabic|polish)\b', re.I)
+OTHER_LANGUAGE = re.compile(r'\b(?:german|french|spanish|portuguese|dutch|italian|mandarin|japanese|korean|arabic|polish|russian|hausa|yoruba)\b', re.I)
 REGION_TITLE = re.compile(r'\b(?:europe(?:an)?|united states|u\.?s\.?a\.?|united kingdom|u\.?k\.?|canada|australia|apac|latam)\b',re.I)
-LANG_REQUIREMENT = re.compile(r'\b(?:fluent|fluency|native|proficien(?:cy|t)|required|must speak|bilingual)\b.{0,35}\b(?:german|french|spanish|portuguese|dutch|italian|mandarin|japanese|korean|arabic|polish)\b|\b(?:german|french|spanish|portuguese|dutch|italian|mandarin|japanese|korean|arabic|polish)\b.{0,25}\b(?:required|fluency|fluent|proficiency|native)\b',re.I)
+LANG_REQUIREMENT = re.compile(r'\b(?:fluent|fluency|native|proficien(?:cy|t)|required|must speak|bilingual)\b.{0,35}\b(?:german|french|spanish|portuguese|dutch|italian|mandarin|japanese|korean|arabic|polish|russian|hausa|yoruba)\b|\b(?:german|french|spanish|portuguese|dutch|italian|mandarin|japanese|korean|arabic|polish|russian|hausa|yoruba)\b.{0,25}\b(?:required|fluency|fluent|proficiency|native)\b',re.I)
 SKILLS = ('windows', 'linux', 'network', 'python', 'microsoft 365', 'burp suite', 'wireshark', 'splunk', 'nmap', 'troubleshoot', 'phishing', 'security', 'documentation')
 
 def fetch(url, payload=None):
@@ -29,7 +30,7 @@ def identity(company,title):
 
 def valid_role(title, seniority, text):
     region_only = REGION_TITLE.search(title) and not re.search(r'\b(?:hours?|time\s*zones?|shifts?)\b', title, re.I)
-    role_match = bool(ROLE.search(title)) or (bool(AI_ROLE.search(title)) and not SPECIALIST.search(title))
+    role_match = bool(ROLE.search(title)) or bool(BROAD_ROLE.search(title)) or (bool(AI_ROLE.search(title)) and not SPECIALIST.search(title))
     return role_match and not TOO_SENIOR.search(title+' '+seniority) and not BLOCKER.search(text) and not OTHER_LANGUAGE.search(title) and not region_only and not LANG_REQUIREMENT.search(text)
 
 class ListingParser(HTMLParser):
@@ -62,10 +63,10 @@ class JsonLdParser(HTMLParser):
                 if isinstance(obj,dict) and obj.get('@type')=='JobPosting': self.jobs.append(obj)
             except (ValueError,TypeError): pass
 
-def html_fetch(url):
+def html_fetch(url, host='www.opentrain.ai'):
     req=urllib.request.Request(url,headers={'User-Agent':'Remote-job-alert-monitor/1.0','Accept':'text/html'})
     with urllib.request.urlopen(req,timeout=45) as response:
-        if urllib.parse.urlsplit(response.url).hostname != 'www.opentrain.ai': raise ValueError('unexpected redirect')
+        if urllib.parse.urlsplit(response.url).hostname != host: raise ValueError('unexpected redirect')
         return response.read().decode('utf8',errors='replace')
 
 def nigeria(job):
@@ -81,11 +82,23 @@ def make(source,title,company,url,text,location,date,seniority='',salary='',guid
     excerpt=re.search(r'\b(?:skills|requirements|experience|qualifications)\s*:\s*([^\n]{15,180})',text,re.I)
     return {'id':identity(company,title),'source':source,'title':title,'company':company,'url':url,'location':location,'date':str(date or 'Not provided'),'seniority':seniority or 'Not specified','salary':plain(salary) or 'Not stated','skills':matched,'guid':guid,'employment':plain(employment) or 'Not specified','requirement':excerpt.group(1).strip() if excerpt else ''}
 
+def location_ok(value):
+    value=plain(value).lower()
+    if re.search(r'\b(?:except|excluding|not available in)\s+nigeria\b',value): return False
+    return bool(re.search(r'\b(nigeria|lagos|abuja|port harcourt|worldwide|anywhere|global)\b',value))
+
+def live(expiry):
+    if not expiry: return True
+    try:
+        d=datetime.fromisoformat(str(expiry).replace('Z','+00:00'))
+        return (d.replace(tzinfo=timezone.utc) if d.tzinfo is None else d) >= datetime.now(timezone.utc)
+    except ValueError: return True
+
 def candidates(source):
     out=[]
     if source=='himalayas':
         # The data is cached for 24h. Limit each focused query to recent results.
-        for query in ('it support','help desk','technical support','security analyst','soc analyst','cybersecurity intern','information security intern','ai trainer','data annotator','ai evaluator'):
+        for query in ('it support','help desk','technical support','security analyst','soc analyst','cybersecurity intern','information security intern','ai trainer','data annotator','ai evaluator','customer support','virtual assistant','data entry'):
             for page in (1,2,3):
                 q=urllib.parse.urlencode({'q':query,'country':'NG','sort':'recent','page':page})
                 data=fetch('https://himalayas.app/jobs/api/search?'+q)
@@ -100,7 +113,7 @@ def candidates(source):
                     if item: out.append(item)
                 if len(data['jobs'])<20: break
     elif source=='jobicy':
-        for tag in ('support','security','ai trainer','data annotator'):
+        for tag in ('support','security','ai trainer','data annotator','virtual assistant','data entry'):
             cursor=None
             for _ in range(5):
                 args={'count':200,'tag':tag}
@@ -146,6 +159,89 @@ def candidates(source):
                 except Exception as e:
                     print('OpenTrain listing skipped: '+type(e).__name__,file=sys.stderr,flush=True)
         if attempted and not details_checked: raise ValueError('OpenTrain job details unavailable')
+    elif source=='remoshift':
+        since=(datetime.now(timezone.utc)-timedelta(days=7)).date().isoformat()
+        seen_urls=set()
+        for query in ('support','security analyst','ai trainer','annotator','virtual assistant','data entry','research assistant','content moderator'):
+            for page in (1,2):
+                q=urllib.parse.urlencode({'country':'NG','q':query,'min_posted':since,'page':page,'per':25})
+                data=fetch('https://remoshift.com/api/v1/jobs.open?'+q)
+                rows=data.get('jobs') if isinstance(data,dict) else None
+                if not isinstance(rows,list): raise ValueError('invalid RemoShift response')
+                for row in rows:
+                    if not valid_role(row.get('title') or '','',''): continue
+                    url=row.get('detail_url') or ''
+                    if urllib.parse.urlsplit(url).hostname!='remoshift.com' or url in seen_urls: continue
+                    seen_urls.add(url)
+                    try:
+                        detail=JsonLdParser(); detail.feed(html_fetch(url,'remoshift.com'))
+                        if not detail.jobs: continue
+                        j=detail.jobs[0]
+                        if j.get('jobLocationType')!='TELECOMMUTE' or not live(j.get('validThrough')): continue
+                        item=make(source,j.get('title') or row.get('title'),row.get('company'),url,j.get('description'),'Board lists Nigeria; verify employer restrictions',j.get('datePosted') or row.get('posted_at'),'',row.get('salary') or '',str(row.get('id') or ''),str(j.get('employmentType') or ''))
+                        if item:
+                            apply=row.get('apply_url') or ''
+                            if urllib.parse.urlsplit(apply).scheme in ('http','https'): item['apply_url']=apply
+                            out.append(item)
+                    except Exception as e: print('RemoShift detail skipped: '+type(e).__name__,file=sys.stderr,flush=True)
+                if len(rows)<25: break
+    elif source=='boqqs':
+        for page in (1,2,3):
+            q=urllib.parse.urlencode({'country':'NG','remote':'remote','per_page':100,'page':page})
+            data=fetch('https://boqqs.com/api/v1/jobs?'+q)
+            rows=data.get('jobs') if isinstance(data,dict) else None
+            if not isinstance(rows,list): raise ValueError('invalid BOQQS response')
+            for row in rows:
+                if not valid_role(row.get('title') or '','','') or not live(row.get('expiresAt')): continue
+                job_id=str(row.get('id') or '')
+                if not re.fullmatch(r'[a-zA-Z0-9_-]+',job_id): continue
+                try:
+                    detail=fetch('https://boqqs.com/api/v1/jobs/'+job_id)
+                    j=detail.get('job',detail)
+                    if not isinstance(j,dict) or not j.get('description'): continue
+                    url=row.get('url') or ''
+                    if urllib.parse.urlsplit(url).scheme not in ('http','https'): continue
+                    item=make(source,row.get('title'),row.get('employer'),url,j.get('description'),'Nigeria remote board listing; verify employer restrictions',row.get('postedAt'),'',row.get('salary') or '',job_id,row.get('employmentType') or '')
+                    if item:
+                        apply=row.get('applyUrl') or ''
+                        if urllib.parse.urlsplit(apply).scheme in ('http','https'): item['apply_url']=apply
+                        out.append(item)
+                except Exception as e: print('BOQQS detail skipped: '+type(e).__name__,file=sys.stderr,flush=True)
+            if len(rows)<100: break
+    elif source=='remoteok':
+        data=fetch('https://remoteok.com/api')
+        if not isinstance(data,list): raise ValueError('invalid Remote OK response')
+        for j in data:
+            if not isinstance(j,dict) or not location_ok(j.get('location')): continue
+            url=j.get('url') or ''
+            if urllib.parse.urlsplit(url).hostname not in ('remoteok.com','remoteok.io'): continue
+            salary=' - '.join(str(j.get(x)) for x in ('salary_min','salary_max') if j.get(x))
+            item=make(source,j.get('position'),j.get('company'),url,j.get('description'),'Board location: '+plain(j.get('location'))+'; verify Nigeria eligibility',j.get('date'),'',salary,str(j.get('id') or ''))
+            if item: out.append(item)
+    elif source in ('welo','rws'):
+        board='weloglobal' if source=='welo' else 'rws'
+        data=fetch('https://api.lever.co/v0/postings/'+board+'?mode=json')
+        if not isinstance(data,list): raise ValueError('invalid Lever response')
+        for j in data:
+            if j.get('workplaceType')!='remote': continue
+            cat=j.get('categories') or {}; loc=cat.get('location') or ''
+            other=cat.get('allLocations') or []
+            if not (location_ok(loc) or any(re.search(r'\b(nigeria|lagos|abuja|port harcourt)\b',str(x),re.I) for x in other)): continue
+            title=j.get('text') or ''
+            text=' '.join([j.get('descriptionPlain') or '',j.get('additionalPlain') or '']+[plain(x.get('content')) for x in j.get('lists') or [] if isinstance(x,dict)])
+            if re.search(r'not an active job opening|talent (?:pool|network)',title+' '+text,re.I): continue
+            date=datetime.fromtimestamp(j['createdAt']/1000,timezone.utc).isoformat() if isinstance(j.get('createdAt'),(int,float)) else ''
+            item=make(source,title,'Welo' if source=='welo' else 'RWS',j.get('hostedUrl'),text,'Employer location: '+plain(loc)+'; confirm Nigeria eligibility',date,'','',j.get('id',''),cat.get('commitment',''))
+            if item: out.append(item)
+    elif source=='remotasks':
+        data=fetch('https://boards-api.greenhouse.io/v1/boards/remotasks/jobs?content=true')
+        if not isinstance(data.get('jobs'),list): raise ValueError('invalid Greenhouse response')
+        for j in data['jobs']:
+            loc=(j.get('location') or {}).get('name') or ''
+            if not location_ok(loc): continue
+            description=plain(html.unescape(j.get('content') or ''))
+            item=make(source,j.get('title'),'Remotasks',j.get('absolute_url'),description,'Employer location: '+plain(loc)+'; verify Nigeria eligibility',j.get('first_published') or '', '', '',str(j.get('id') or ''))
+            if item: out.append(item)
     elif source=='remotive':
         data=fetch('https://remotive.com/api/remote-jobs')
         if not isinstance(data.get('jobs'),list): raise ValueError('invalid Remotive response')
@@ -180,7 +276,8 @@ def verify(j):
             status=detail['jobs'][0]['status']
             return 'Open according to Jobicy' if status=='active' else ('closed' if status=='closed' else 'Board listing status unverified')
         except Exception: return 'Board listing status unverified'
-    return 'Listed by Remotive; employer status unverified'
+    names={'remotive':'Remotive','remoshift':'RemoShift','boqqs':'BOQQS','remoteok':'Remote OK','welo':'Welo careers','rws':'RWS careers','remotasks':'Remotasks careers'}
+    return 'Listed by '+names.get(j['source'],j['source'])+'; employer availability may change'
 
 def send(message):
     try:
@@ -193,7 +290,9 @@ def message(j,status):
     label='Last updated' if j['source']=='himalayas' else 'Published'
     fit=', '.join(j['skills']) if j['skills'] else 'Role title matches your target; review skills and requirements'
     req='\nListing requirement excerpt: '+j['requirement'] if j.get('requirement') else ''
-    return f"Remote job lead: {j['title']} — {j['company']}\n{j['location']}\nEmployment: {j['employment']}\nLevel: {j['seniority']}\n{label}: {j['date']}\nSalary: {j['salary']}\nPotential skill overlap: {fit}{req}\n{status}; eligibility and fit need your review.\nSource: {j['source'].title()}\n{j['url']}"
+    source_names={'opentrain':'OpenTrain','remoshift':'RemoShift','boqqs':'BOQQS','remoteok':'Remote OK','welo':'Welo','rws':'RWS','remotasks':'Remotasks'}
+    apply='\nApply: '+j['apply_url'] if j.get('apply_url') and j['apply_url']!=j['url'] else ''
+    return f"Remote job lead: {j['title']} — {j['company']}\n{j['location']}\nEmployment: {j['employment']}\nLevel: {j['seniority']}\n{label}: {j['date']}\nSalary: {j['salary']}\nPotential skill overlap: {fit}{req}\n{status}; eligibility and fit need your review.\nSource: {source_names.get(j['source'],j['source'].title())}\n{j['url']}{apply}"
 
 def save(state): STATE.write_text(json.dumps(state,indent=2)+'\n',encoding='utf8')
 
