@@ -24,6 +24,12 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python monitor.py
+      - name: Verify Telegram delivery on manual run
+        if: github.event_name == 'workflow_dispatch' && steps.monitor.outcome == 'success'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python -c "from monitor import send; send('Cloud bug bounty monitor is running. This is a test message.')"
       - name: Save state
         if: always()
         run: |
