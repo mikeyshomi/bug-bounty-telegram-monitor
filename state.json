@@ -1914,12 +1914,14 @@
     "https://www.allwyn.cz/.well-known/responsible_disclosure_policy.pdf",
     "https://www.amboss.com/us/legal/privacy-policy-overview",
     "https://www.anslation.com/responsible-disclosure",
+    "https://www.anwb.nl/meldpunt-kwetsbaarheden",
     "https://www.apeldoorn.nl/coordinated-vulnerability-disclosure-cvd",
     "https://www.apnic.net/community/security/apnic-vulnerability-reporting-program/",
     "https://www.appier.com/hubfs/other%20information/appier%20vulnerability%20disclosure%20policy.pdf",
     "https://www.arin.net/reference/materials/security/",
     "https://www.artis.nl/nl/privacyverklaring",
     "https://www.atlassian.com/trust/security/report-a-vulnerability",
+    "https://www.automox.com/platform/security",
     "https://www.balluff.com/assets/pdf/balluff_doc_cra-customer-information_202511_en-1.pdf",
     "https://www.bannersnack.com/security#disclosure",
     "https://www.belsimpel.nl/klantenservice/overbelsimpel/veiligheidenprivacy",
@@ -2131,7 +2133,8 @@
     "https://www.yourepo.com/user/privacy",
     "https://www.zoetermeer.nl/beveiliginglek-of-datalek-melden",
     "https://www.zoom.com/en/trust/reporting-vulnerability/",
-    "https://ya.cc/t/1cszixjb3gksva"
+    "https://ya.cc/t/1cszixjb3gksva",
+    "https://yarnspinner.dev/terms/"
   ],
   "cantina_contests": [
     "https://cantina.xyz/competitions/e275368c-547d-4d91-a418-053ad31082a8"
