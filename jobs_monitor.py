@@ -298,24 +298,45 @@ def save(state): STATE.write_text(json.dumps(state,indent=2)+'\n',encoding='utf8
 
 def main():
     state=json.loads(STATE.read_text(encoding='utf8')) if STATE.exists() else {'seen':[],'checked':{},'initialized':False}
-    seen=set(state['seen']); first=not state['initialized']; sent=0; failures=[]
+    seen=set(state['seen']); sent=0; fatal=False; attempted=0
+    problems=state.setdefault('source_failures',{})
     for source,interval in INTERVALS.items():
         now=int(time.time())
-        if now-state['checked'].get(source,0)<interval: continue
+        previous=problems.get(source,{})
+        if previous and now-previous.get('last_attempt',0)<21600:
+            print('::warning::'+source+' unavailable; retrying after cooldown',flush=True)
+            continue
+        if not previous and now-state['checked'].get(source,0)<interval: continue
+        attempted+=1
         try:
             found=candidates(source)
-            state['checked'][source]=now; save(state)
+        except Exception as e:
+            detail='HTTP '+str(e.code) if isinstance(e,urllib.error.HTTPError) else type(e).__name__
+            problems[source]={'last_attempt':now,'error':detail}
+            print('::warning::'+source+' unavailable ('+detail+'); other sources continue',flush=True)
+            save(state)
+            continue
+        try:
             for j in found:
-                if j['id'] in seen or not recent(j['date']): continue
-                if sent>=MAX_INITIAL: continue
+                if j['id'] in seen or not recent(j['date']) or sent>=MAX_INITIAL: continue
                 status=verify(j)
                 if status=='closed': continue
                 send(message(j,status)); sent+=1; seen.add(j['id']); state['seen']=sorted(seen); save(state)
-            print(source+': checked',flush=True)
         except Exception as e:
-            print(source+': failed: '+type(e).__name__,file=sys.stderr,flush=True); failures.append(source)
-    if not failures: state['initialized']=True
+            print('Telegram delivery or job processing failed: '+type(e).__name__,file=sys.stderr,flush=True)
+            fatal=True
+            continue
+        problems.pop(source,None)
+        state['checked'][source]=now
+        save(state)
+        print(source+': checked',flush=True)
+    healthy=[source for source,interval in INTERVALS.items() if source not in problems and int(time.time())-state['checked'].get(source,0)<max(interval*2,21600)]
+    if not healthy and attempted:
+        print('No job sources available; monitor cannot operate',file=sys.stderr,flush=True)
+        fatal=True
+    if healthy: state['initialized']=True
+    print('Source health: '+str(len(healthy))+' recently successful, '+str(len(problems))+' unavailable; Telegram alerts sent: '+str(sent),flush=True)
     save(state)
-    if failures: sys.exit(1)
+    if fatal: sys.exit(1)
 
 if __name__=='__main__': main()
