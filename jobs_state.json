@@ -46,13 +46,13 @@
     "fad5418c40c3f6bcbb1624ea6aee85058c7b74cdb26434d666bd18eb32614471"
   ],
   "checked": {
-    "himalayas": 1794441891,
-    "jobicy": 1794521570,
+    "himalayas": 1794538361,
+    "jobicy": 1794538367,
     "remotive": 1794521583,
-    "opentrain": 1794521583,
+    "opentrain": 1794538378,
     "remoshift": 1794521594,
     "boqqs": 1793901515,
-    "remoteok": 1794521598,
+    "remoteok": 1794538390,
     "welo": 1794521599,
     "rws": 1794521611,
     "remotasks": 1794521615
@@ -62,6 +62,10 @@
     "boqqs": {
       "last_attempt": 1794521598,
       "error": "HTTP 404"
+    },
+    "remoshift": {
+      "last_attempt": 1794538388,
+      "error": "HTTP 503"
     }
   }
 }
