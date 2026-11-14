@@ -49,28 +49,24 @@
   ],
   "checked": {
     "himalayas": 1794538361,
-    "jobicy": 1794683128,
-    "remotive": 1794663991,
-    "opentrain": 1794683138,
-    "remoshift": 1794521594,
+    "jobicy": 1794697017,
+    "remotive": 1794697029,
+    "opentrain": 1794697029,
+    "remoshift": 1794697040,
     "boqqs": 1793901515,
-    "remoteok": 1794683147,
-    "welo": 1794664001,
-    "rws": 1794664003,
-    "remotasks": 1794664003
+    "remoteok": 1794697043,
+    "welo": 1794697044,
+    "rws": 1794697044,
+    "remotasks": 1794697044
   },
   "initialized": true,
   "source_failures": {
     "boqqs": {
-      "last_attempt": 1794664000,
+      "last_attempt": 1794697042,
       "error": "HTTP 404"
     },
-    "remoshift": {
-      "last_attempt": 1794663998,
-      "error": "HTTP 503"
-    },
     "himalayas": {
-      "last_attempt": 1794663972,
+      "last_attempt": 1794697010,
       "error": "HTTP 429"
     }
   }
