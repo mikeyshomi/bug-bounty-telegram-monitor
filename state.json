@@ -1916,6 +1916,7 @@
     "https://security.cake.com/",
     "https://security.ecovacs.cn/en/p/rating-standards",
     "https://security.midas.network/reporting",
+    "https://security.perlego.com/vrp.pdf",
     "https://security.rails.cz/vulnerability-disclosure.html",
     "https://sentiark.com/infosec",
     "https://setpointmedical.com/security-rewards/",
@@ -2048,6 +2049,7 @@
     "https://www.ethz.ch/content/dam/ethz/associates/services/service/it-services/files/documents/eth-disclosure-policy-en.pdf",
     "https://www.euredas.ai/security#disclosure",
     "https://www.everllence.com/docs/default-source/cybersecurity/evr_cra_cvd.pdf",
+    "https://www.evolvingedge.ai/security/#disclosure",
     "https://www.exoscale.com/security/",
     "https://www.expediagroup.com/about/privacy-data-handling-requirements/",
     "https://www.fairphone.com/en/legal/fairphone-privacy-policy/",
@@ -2056,6 +2058,7 @@
     "https://www.fluvius.be/nl/privacybeleid",
     "https://www.fontys.nl/en/about-fontys/who-we-are/our-organisation/rules-regulations/report-a-vulnerability-to-fontys-coordinated-vulnerability-disclosure.htm",
     "https://www.forexfactory.com/bug-bounty",
+    "https://www.foxy.io/security-contact",
     "https://www.freeagent.com/features/disclosure/",
     "https://www.freefiremania.com.br/politica-de-privacidade.html",
     "https://www.futurae.com/vulnerability-disclosure",
@@ -2232,6 +2235,7 @@
     "https://zapier.com/engineering/bug-bounty-program/"
   ],
   "cantina_contests": [
+    "https://cantina.xyz/competitions/78a6e652-de09-435f-918d-471243508009",
     "https://cantina.xyz/competitions/e275368c-547d-4d91-a418-053ad31082a8"
   ],
   "code4rena_contests": [],
